@@ -66,9 +66,3 @@ varnames <-
 setnames(df_spam,
          old = names(df_spam),
          new = varnames)
-
-# create test & training dataset
-index <- sample(1:nrow(df_spam),round(0.75*nrow(df_spam)))
-train <- df_spam[index,]
-test <- df_spam[-index,]
-
