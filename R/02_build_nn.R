@@ -68,7 +68,7 @@ epochs <- 500
 # the patience parameter is the amount of epochs to check for improvement.
 early_stop <- callback_early_stopping(monitor = "val_loss", patience = 20)
 
-# run model again with early stopping
+# run model with early stopping
 model <- build_model()
 history <- model %>% fit(
   train,
