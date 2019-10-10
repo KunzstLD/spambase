@@ -1,6 +1,7 @@
-# Set up script:
 # load used libraries
-library(neuralnet)
+# library(neuralnet)
 library(caret)
 library(data.table)
 library(dplyr)
+library(keras)
+library(ggplot2)
