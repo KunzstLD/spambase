@@ -1,13 +1,10 @@
 # TODO:
-# 1) different starting values; 
-# 2) test different number of hidden layers: 2, 3, 5
-# 3) Experiment with hidden units
-# 4) weight decay vs no weight decay
-# Next date: 18.10.2019/4 pm 
+# KFold cross validation
+# Next date: 
 
 # ?What is: Loss, Accuaracy
 # Loss: calculated during model process. Summation of errors for each
- # sample during the trainin process. Uses either negative log-likelihood (classification)
+ # sample during the training process. Uses either negative log-likelihood (classification)
  # or reisdual sum of squares (regression). Implies how well a model behaves
  # after each iteration (epoch). 
 # Accurracy: after model parameters are learned test data is fed to 
@@ -32,7 +29,10 @@ col_means_train <- attr(train, "scaled:center")
 col_std_train <- attr(train, "scaled:scale")
 test <- scale(test, center = col_means_train, scale = col_std_train)
 
-# a simple model
+# ---------------------------------------------------------------------------------
+#### build a simple model ####
+# ---------------------------------------------------------------------------------
+
 build_model <- function() {
   # hidden units typically between 5 and 100
   model <- keras_model_sequential() %>%
@@ -49,24 +49,7 @@ build_model <- function() {
   model
 }
 model <- build_model()
-model %>% summary()
-
-# training
-# model %>% fit(train, train_labels, epochs = 5)
-
-# Display training progress by printing a single dot for each completed epoch.
-print_dot_callback <- callback_lambda(
-  on_epoch_end = function(epoch, logs) {
-    if (epoch %% 80 == 0) cat("\n")
-    cat(".")
-  }
-)
-epochs <- 500
-
-# Fit the model and store training stats
-# The model is stopped when no improvement can be seen. Thereby 
-# the patience parameter is the amount of epochs to check for improvement.
-early_stop <- callback_early_stopping(monitor = "val_loss", patience = 20)
+# model %>% summary()
 
 # run model with early stopping
 model <- build_model()
@@ -78,27 +61,41 @@ history <- model %>% fit(
   verbose = 0,
   callbacks = list(early_stop, print_dot_callback)
 )
-plot(history, metrics = "accuracy", smooth = FALSE) +
-  coord_cartesian(xlim = c(0, 50), ylim = c(0.5, 1)) +
-  theme_bw()
+
+# plot Accuracy & loss
+gridExtra::grid.arrange(
+  plot(history, metrics = "accuracy", smooth = FALSE) +
+    coord_cartesian(xlim = c(0, history$metrics$loss %>% length()), 
+                    ylim = c(0.5, 1)) +
+    ggtitle("Accuracy & Loss in base model") +
+    theme_bw(),
+  plot(history, metrics = "loss", smooth = FALSE) +
+    coord_cartesian(xlim = c(0, history$metrics$loss %>% length()), 
+                    ylim = c(0, 1)) +
+    theme_bw(),
+  ncol = 1
+)
 
 # Accuracy on training set 
 history$metrics$accuracy %>% summary()
 
 # Evaluate model on test data
 c(loss, accuracy) %<-% (model %>% evaluate(test, test_labels, verbose = 0))
-accuracy
+# accuracy
+# loss
 
 # Predictions
-predictions <- model %>% predict(test)
 # same as evaluation, just a little bit more detailed
+predictions <- model %>% predict(test)
 predictions <- data.table(pred = as.factor(ifelse(predictions > 0.5, 1, 0)),
                           true_val = as.factor(test_labels))
 caret::confusionMatrix(predictions$true_val,
                        predictions$pred)
 # !here one could investigate further which predictions have been wrong
 
-#### Using Weight decay ####
+# ---------------------------------------------------------------------------------
+#### Weight decay #### 
+# ---------------------------------------------------------------------------------
 weight_decay_model <- function() {
   # hidden units typically between 5 and 100
   model_wd <- keras_model_sequential() %>%
@@ -132,34 +129,88 @@ history_wd <- model_wd %>% fit(
   callbacks = list(early_stop, print_dot_callback)
 )
 
-# plot loss 
-data.table(baseline_loss_train = history$metrics$loss,
-           baseline_loss_val = history$metrics$val_loss,
-           wd_loss_train = history_wd$metrics$loss[1:38],
-           wd_loss_val = history_wd$metrics$val_loss[1:38],
-           Epoch = 1:38) %>%
-           melt(., id.vars = "Epoch", value.name = "loss") %>%
-           ggplot(., aes(x = Epoch, y = loss, color = as.factor(variable))) +
-                 geom_line(size = 1.5) +
-                 theme_bw()
-plot(history_wd)
-summary(history_wd$metrics$val_accuracy)
+# validation & training set have almost same accuracy in the end
+# validation better accuarcy?
+gridExtra::grid.arrange(
+  plot(history_wd, metrics = "accuracy", smooth = FALSE) +
+    coord_cartesian(xlim = c(0, history_wd$metrics$loss %>% length()), 
+                    ylim = c(0.5, 1)) +
+    ggtitle("Accuracy & Loss in weight decay model") +
+    theme_bw(),
+  plot(history_wd, metrics = "loss", smooth = FALSE) +
+    coord_cartesian(xlim = c(0, history_wd$metrics$loss %>% length()), 
+                    ylim = c(0, 1)) +
+    theme_bw(),
+  ncol = 1
+)
+# accuracy training & validation set ~ 96 %
+history_wd$metrics$accuracy %>% summary()
+history_wd$metrics$val_accuracy %>% summary()
 
-#### using Neuralnet package ####
-# nn <- neuralnet(
-#   spam ~.,
-#   data = train,
-#   hidden = c(3, 3),
-#   act.fct = "logistic",
-#   linear.output = FALSE,
-#   stepmax = 1e6
-# )
-# plot(nn)
+# Predictions
+predictions <- model_wd %>% predict(test)
+predictions <- data.table(pred = as.factor(ifelse(predictions > 0.5, 1, 0)),
+                          true_val = as.factor(test_labels))
+caret::confusionMatrix(predictions$true_val,
+                       predictions$pred)
 
-# # predict on test data
-# pred <- predict(nn, test[, -c("spam")])
+# ---------------------------------------------------------------------------------
+#### Dropout ####
+# ---------------------------------------------------------------------------------
+dropout_model <- function() {
+  # hidden units typically between 5 and 100
+  model_drop <- keras_model_sequential() %>%
+    layer_dense(units = 29,
+                activation = "relu",
+                input_shape = dim(train)[2]) %>%
+    layer_dropout(rate = 0.5) %>% 
+    layer_dense(units = 29,
+                activation = "relu") %>%
+    layer_dropout(rate = 0.5) %>% 
+    layer_dense(units = 1,
+                activation = "sigmoid")
+  
+  model_drop %>% compile(
+    optimizer = "adam",
+    loss = "binary_crossentropy",
+    metrics = list("accuracy")
+  )
+  model_drop
+}
+model_drop <- dropout_model()
 
-# # classify as spam or not spam depending on probability
-# pred <- ifelse(pred > 0.5, 1, 0)
-# # ~ 7 % classification error
-# caret::confusionMatrix(as.factor(test$spam), as.factor(pred))
+# training
+history_dropout <- model_drop %>% fit(
+  train,
+  train_labels,
+  epochs = epochs,
+  validation_split = 0.2,
+  verbose = 0,
+  callbacks = list(early_stop, print_dot_callback)
+)
+
+# validation set has higher accuracy than training?
+gridExtra::grid.arrange(
+  plot(history_dropout, metrics = "accuracy", smooth = FALSE) +
+    coord_cartesian(xlim = c(0, history_dropout$metrics$loss %>% length()), 
+                    ylim = c(0.5, 1)) +
+    ggtitle("Accuracy & Loss in dropout model") +
+    theme_bw(),
+  plot(history_dropout, metrics = "loss", smooth = FALSE) +
+    coord_cartesian(xlim = c(0, history_dropout$metrics$loss %>% length()), 
+                    ylim = c(0, 1)) +
+    theme_bw(),
+  ncol = 1
+)
+
+# accuracy training & validation set ~ 95%
+history_dropout$metrics$accuracy %>% summary()
+history_dropout$metrics$val_accuracy %>% summary()
+
+# Predaictions
+predictions <- model_drop %>% predict(test)
+predictions <- data.table(pred = as.factor(ifelse(predictions > 0.5, 1, 0)),
+                          true_val = as.factor(test_labels))
+caret::confusionMatrix(predictions$true_val,
+                       predictions$pred)
+
